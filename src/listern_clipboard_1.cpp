@@ -13,6 +13,9 @@
 #include <cstdint>
 #include <openxlsx.hpp> // OpenXLSX 头文件
 #include <fstream>
+#include <sstream>
+#include <iomanip>
+#include <ctime>
 using namespace OpenXLSX;
 struct Config {
     std::wstring output_path = L"search_log.txt"; // 默认输出文件
@@ -55,8 +58,7 @@ void parse_command_line(LPWSTR lpCmdLine,Config &cfg) {
 		}else if (args[i] == L"--help" || args[i] == L"-h") {
             cfg.show_help = true;
         } else if (args[i] == L"--column" || args[i] == L"-c") {
-            cfg.show_help = true;
-			if (i + 1 < args.size()) {
+            if (i + 1 < args.size()) {
 				cfg.column = args[++i]; // 取后续参数作为列字母
 			} else {
 				cfg.show_help = true;
@@ -81,7 +83,7 @@ void show_help(HINSTANCE hInstance) {
     std::wcout << L"选项：" << std::endl;
     std::wcout << L"  --file <路径> (-f)  已下载书籍文件路径（默认：20250304.xlsm）" << std::endl;
     std::wcout << L"  --logTofile <路径> (-l)  是否保存查找结果及路径（默认：不保存，search_log.txt）" << std::endl;
-    std::wcout << L"  --column <路径> (-c)  查找列（默认：A列）" << std::endl;
+    std::wcout << L"  --column <路径> (-c)  查找列（默认：A列-书名，其它列：B列-文件长度、C列-文件日期）" << std::endl;
     std::wcout << L"  --detail (-d)        显示详细日志" << std::endl;
     std::wcout << L"  --help (-h)           显示此帮助信息" << std::endl;
 }
@@ -216,17 +218,47 @@ uint32_t detect_max_row(XLWorksheet& sheet, uint16_t col = 1) {
     }
     return maxRow;
 }
+std::string tmToString(const std::tm& timeStruct, const std::string& format = "%Y-%m-%d %H:%M:%S") {
+    std::ostringstream oss;
+    oss << std::put_time(&timeStruct, format.c_str());
+    return oss.str();
+}
+std::tm excelDateToTm(double excelDate) {
+    // Excel date starts from 1900-01-01
+    const time_t baseDate = -2209161600; // Unix timestamp for 1900-01-01
+    time_t timestamp = baseDate + static_cast<time_t>(excelDate * 86400); // Convert days to seconds
+    std::tm dateTime = *std::localtime(&timestamp);
+    return dateTime;
+}
+bool isValidExcelDate(double value) {
+    // Excel date range: 1 (1900-01-01) to 2958465 (9999-12-31)
+    return value >= 1.0 && value <= 2958465.0;
+}
+std::string  processDatetimeCell(const XLCellValue& cellValue) {
 
+        double excelDate = cellValue.get<double>();
+        std::tm dateTime = excelDateToTm(excelDate);
+        return tmToString(dateTime, "%Y-%m-%d %H:%M:%S");
+}
 std::vector<Match> find_string_in_sheet(XLWorksheet& sheet, const std::string& target, uint16_t col) {
     std::vector<Match> matches;
     uint32_t maxRow = detect_max_row(sheet, col);
-
+    std::string val="";
     for (uint32_t row = 1; row <= maxRow; ++row) {
         auto cell = sheet.cell(XLCellReference(row, col));
         if (cell.value().type() == XLValueType::Empty) continue;
 
 //        std::string val = cell.value().get<std::string>();
-        std::string val = cell.value().getString();
+		if (cell.value().type() == XLValueType::Float&&isValidExcelDate(cell.value().get<double>())) {
+
+			val=processDatetimeCell(cell.value());
+			}
+
+		else
+		{
+			val = cell.value().getString();
+		}
+//        std::string val = cell.get<std::string>(format::string);
         if (val.find(target) != std::string::npos) {
             matches.emplace_back(sheet.name(), cell.cellReference().address(),val);
         }
