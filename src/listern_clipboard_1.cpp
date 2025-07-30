@@ -14,6 +14,77 @@
 #include <openxlsx.hpp> // OpenXLSX 头文件
 #include <fstream>
 using namespace OpenXLSX;
+struct Config {
+    std::wstring output_path = L"search_log.txt"; // 默认输出文件
+    std::wstring input_path = L"20250304.xlsm"; // 默认输入文件
+    std::wstring column = L"A"; // 默认输入文件
+    bool detail = false;                        // 是否显示详细日志
+    bool logTofile=false;					//是否将查找到的书籍目录写入到文件
+    bool show_help = false;                       // 是否显示帮助信息
+} cfg;
+
+// 解析宽字符命令行参数
+void parse_command_line(LPWSTR lpCmdLine,Config &cfg) {
+    //Config cfg;
+    std::vector<std::wstring> args;
+
+    // 分割 lpCmdLine 为单个参数（简易分割，处理空格分隔的参数）
+    wchar_t* token = wcstok(lpCmdLine, L" ");
+    while (token != nullptr) {
+        args.emplace_back(token);
+        token = wcstok(nullptr, L" ");
+    }
+
+    // 解析参数
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (args[i] == L"--file" || args[i] == L"-f") {
+			if (i + 1 < args.size()) {
+				cfg.input_path = args[++i]; // 取后续参数作为输入路径
+			} else {
+				cfg.show_help = true;
+				std::wcerr << L"错误：--file 需要指定已下载书籍文件路径" << std::endl;
+			}
+		} else if (args[i] == L"--detail" || args[i] == L"-d") {
+			cfg.detail = true; // 启用详细日志
+		} else if (args[i] == L"--logTofile" || args[i] == L"-l") {
+			cfg.logTofile = true; // 启用日志到文件
+
+             if (i + 1 < args.size()) {
+                cfg.output_path = args[++i]; // 取后续参数作为输出路径
+              }
+		}else if (args[i] == L"--help" || args[i] == L"-h") {
+            cfg.show_help = true;
+        } else if (args[i] == L"--column" || args[i] == L"-c") {
+            cfg.show_help = true;
+			if (i + 1 < args.size()) {
+				cfg.column = args[++i]; // 取后续参数作为列字母
+			} else {
+				cfg.show_help = true;
+				std::wcerr << L"错误：--column 需要指定列字母" << std::endl;
+			}
+
+        }
+
+		else {
+            cfg.show_help = true;
+            std::wcerr << L"错误：未知参数 " << args[i] << std::endl;
+        }
+    }
+
+    return ;
+}
+
+// 显示帮助信息
+void show_help(HINSTANCE hInstance) {
+    std::wcout << L"剪贴板监听查找书籍工具" << std::endl;
+    std::wcout << L"用法：search_book_service [选项]" << std::endl;
+    std::wcout << L"选项：" << std::endl;
+    std::wcout << L"  --file <路径> (-f)  已下载书籍文件路径（默认：20250304.xlsm）" << std::endl;
+    std::wcout << L"  --logTofile <路径> (-l)  是否保存查找结果及路径（默认：不保存，search_log.txt）" << std::endl;
+    std::wcout << L"  --column <路径> (-c)  查找列（默认：A列）" << std::endl;
+    std::wcout << L"  --detail (-d)        显示详细日志" << std::endl;
+    std::wcout << L"  --help (-h)           显示此帮助信息" << std::endl;
+}
 std::string CharsetConvert(const char* utf8_str,UINT acp=936,UINT consolecp=CP_UTF8) {
 	
 	//字符集转换 acp 为激活代码页（输入参数字符集）,consolecp 为控制台字符集（输出字符集)
@@ -57,17 +128,14 @@ std::wstring MultiByteConvertWideChar(const std::string &str,UINT acp=936) {
     return std::wstring(buf.data());
    
 }
-std::wstring Utf8ToUtf16(const std::string &utf8)
-	{
-		std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>, wchar_t> utf16conv;
-    return utf16conv.from_bytes(utf8);
-	}
+
 std::string Utf16ToUtf8(const std::wstring &utf16)
 	{
 		 std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> ucs2conv;
 			return ucs2conv.to_bytes(utf16);
 	}
 // 自定义宽字符异常类
+#if 0
 class WideException : public std::runtime_error {
 private:
     std::wstring wmsg; // 存储宽字符异常信息
@@ -78,7 +146,7 @@ public:
     // 构造函数：接受宽字符字符串
     explicit WideException(const std::wstring& message) :std::runtime_error(Utf16ToUtf8(message)),wmsg(message) {}
      WideException(const std::exception& e) : std::runtime_error(e.what()),wmsg(Utf8ToUtf16(e.what())) {}
-#if 0 
+
     // 重写 what()：返回窄字符版本（需转换）
     const char* what() const noexcept override {
         // 宽字符转窄字符（UTF-8）
@@ -86,12 +154,13 @@ public:
         msg = converter.to_bytes(wmsg); // 转换失败会抛出，但 what() 不允许抛异常，需处理
         return msg.c_str();
     }
-#endif
+
     // 提供宽字符信息获取接口
     const std::wstring& wide_what() const noexcept {
         return wmsg;
     }
 };
+#endif
 std::map<std::wstring, std::wstring> parse_args(int argc, wchar_t* argv[]) {
     std::map<std::wstring, std::wstring> args;
     for (int i = 1; i < argc; ++i) {
@@ -223,7 +292,7 @@ void log_console(const std::vector<Match>& matches,std::wstring filename, const 
 }
 // ==== 日志输出 ====
 void log_file(const std::vector<Match>& matches,std::string filename, const std::string& keyword,std::string column="A",bool detail=FALSE) {
-    std::ofstream log("search_log.txt", std::ios::app);
+    std::ofstream log(filename, std::ios::app);
 //    log.imbue(std::locale(log.getloc(), new std::codecvt_utf8<wchar_t>()));
  
     	if (detail)
@@ -234,16 +303,17 @@ void log_file(const std::vector<Match>& matches,std::string filename, const std:
     log.close();
     }
 
-void search_keyword(const std::wstring& excel_path,const std::wstring &keyword,std::wstring column=L"A",bool detail=TRUE,bool tofile=FALSE) {
+void search_keyword(const std::wstring& excel_path,const std::wstring &output_path,const std::wstring &keyword,std::wstring column=L"A",bool detail=TRUE,bool tofile=FALSE) {
    
     std::string excel_file=WideCharConvertMultiByte(excel_path,GetACP());
+    std::string output_file=WideCharConvertMultiByte(output_path,GetACP());
     std::string column_str=WideCharConvertMultiByte(column,GetACP());
     std::string keyword_str=WideCharConvertMultiByte(keyword,GetACP());
 //    	ASSERT_MSG(excel_file.empty(),"字符串为空 %s",excel_file);
     if (!keyword.empty()){
            
             auto matches = search_excel_all_sheets(excel_file,keyword_str,column_str);
-            if (tofile) log_file(matches,excel_file,keyword_str,column_str,detail);
+            if (tofile) log_file(matches,output_file,keyword_str,column_str,detail);
          
             log_console(matches,excel_path,keyword,detail,column);
         
@@ -310,7 +380,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
            { std::wstring clipboardText = GetClipboardText();
             if (!clipboardText.empty()&&last!=clipboardText) {
     						last=clipboardText;
-    					search_keyword(L"20250304.xlsm",last,L"A",TRUE,FALSE);
+    					search_keyword(cfg.input_path,cfg.output_path,clipboardText,cfg.column,cfg.detail,cfg.logTofile);
     								
             }            
             return 0;
@@ -391,6 +461,22 @@ int WINAPI wWinMain(
 ) 
 {
 	setup_utf8_console();
+	parse_command_line(lpCmdLine,cfg);
+
+
+    // 3. 处理帮助信息
+    if (cfg.show_help) {
+        show_help(hInstance);
+        return 0;
+    }
+
+    // 4. 输出参数配置（演示用）
+    std::wcout << L"===== 配置信息 =====" << std::endl;
+    std::wcout << L"书名文件路径：" << cfg.input_path << std::endl;
+    std::wcout << L"输出日志到文件：" << (cfg.logTofile ? L"开启" : L"关闭") << std::endl;
+    std::wcout << L"输出文件路径：" << cfg.output_path << std::endl;
+    std::wcout << L"查找列：" << cfg.column << std::endl;
+    std::wcout << L"详细日志：" << (cfg.detail ? L"开启" : L"关闭") << std::endl;
     std::wcout << L"开始监听剪贴板更新（按 Ctrl+C 退出）..." << std::endl;
     StartClipboardListener();
     return 0;
