@@ -131,7 +131,7 @@ std::wstring MultiByteConvertWideChar(const std::string &str,UINT acp=936) {
    
 }
 
-std::string Utf16ToUtf8(const std::wstring &utf16)
+inline std::string Utf16ToUtf8(const std::wstring &utf16)
 	{
 		 std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> ucs2conv;
 			return ucs2conv.to_bytes(utf16);
@@ -218,19 +218,19 @@ uint32_t detect_max_row(XLWorksheet& sheet, uint16_t col = 1) {
     }
     return maxRow;
 }
-std::string tmToString(const std::tm& timeStruct, const std::string& format = "%Y-%m-%d %H:%M:%S") {
+inline std::string tmToString(const std::tm& timeStruct, const std::string& format = "%Y-%m-%d %H:%M:%S") {
     std::ostringstream oss;
     oss << std::put_time(&timeStruct, format.c_str());
     return oss.str();
 }
-std::tm excelDateToTm(double excelDate) {
+inline std::tm excelDateToTm(double excelDate) {
     // Excel date starts from 1900-01-01
     const time_t baseDate = -2209161600; // Unix timestamp for 1900-01-01
     time_t timestamp = baseDate + static_cast<time_t>(excelDate * 86400); // Convert days to seconds
     std::tm dateTime = *std::localtime(&timestamp);
     return dateTime;
 }
-bool isValidExcelDate(double value) {
+inline bool isValidExcelDate(double value) {
     // Excel date range: 1 (1900-01-01) to 2958465 (9999-12-31)
     return value >= 1.0 && value <= 2958465.0;
 }
