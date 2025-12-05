@@ -16,6 +16,7 @@
 #include <sstream>
 #include <iomanip>
 #include <ctime>
+#include <cstdlib>
 using namespace OpenXLSX;
 struct Config {
     std::wstring output_path = L"search_log.txt"; // 默认输出文件
@@ -24,6 +25,7 @@ struct Config {
     bool detail = false;                        // 是否显示详细日志
     bool logTofile=false;					//是否将查找到的书籍目录写入到文件
     bool show_help = false;                       // 是否显示帮助信息
+    bool autorefresh=false;						// 是否自动refreshE:\My Kindle Content目录文件
 } cfg;
 
 // 解析宽字符命令行参数
@@ -49,7 +51,11 @@ void parse_command_line(LPWSTR lpCmdLine,Config &cfg) {
 			}
 		} else if (args[i] == L"--detail" || args[i] == L"-d") {
 			cfg.detail = true; // 启用详细日志
-		} else if (args[i] == L"--logTofile" || args[i] == L"-l") {
+		}
+		else if (args[i] == L"--autorefresh" || args[i] == L"-a") {
+					cfg.autorefresh = true; // 自动refreshE:\My Kindle Content目录文件
+				}
+		else if (args[i] == L"--logTofile" || args[i] == L"-l") {
 			cfg.logTofile = true; // 启用日志到文件
 
              if (i + 1 < args.size()) {
@@ -85,6 +91,8 @@ void show_help(HINSTANCE hInstance) {
     std::wcout << L"  --logTofile <路径> (-l)  是否保存查找结果及路径（默认：不保存，search_log.txt）" << std::endl;
     std::wcout << L"  --column <路径> (-c)  查找列（默认：A列-书名，其它列：B列-文件长度、C列-文件日期）" << std::endl;
     std::wcout << L"  --detail (-d)        显示详细日志" << std::endl;
+    std::wcout << L"  --autorefresh (-a)        自动refresh E:\\My Kindle Content目录文件" << std::endl;
+
     std::wcout << L"  --help (-h)           显示此帮助信息" << std::endl;
 }
 std::string CharsetConvert(const char* utf8_str,UINT acp=936,UINT consolecp=CP_UTF8) {
@@ -502,6 +510,12 @@ int WINAPI wWinMain(
         return 0;
     }
 
+
+
+// 在 main 或 wWinMain 开头添加
+    if (cfg.autorefresh){
+	system("python ..\\src\\rungetfilenamefrompath.py");
+    }
     // 4. 输出参数配置（演示用）
     std::wcout << L"===== 配置信息 =====" << std::endl;
     std::wcout << L"书名文件路径：" << cfg.input_path << std::endl;
