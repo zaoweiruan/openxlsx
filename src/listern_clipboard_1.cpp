@@ -17,7 +17,50 @@
 #include <iomanip>
 #include <ctime>
 #include <cstdlib>
+
+#include <cstdio>
+#include <memory>
+#include <array>
+
 using namespace OpenXLSX;
+void RunPythonAndShowResult() {
+
+	std::wstring cmd =
+			LR"(E:\Python312\python.exe D:\mvnworkspace\example\openxlsx\src\rungetfilenamefrompath.py)";
+
+    FILE* pipe = _wpopen(cmd.c_str(), L"r");
+    if (!pipe){
+
+		DWORD err = GetLastError();
+		std::wcout << L"无法启动 Python 脚本" << std::endl;
+        std::wcout << L"错误码: " << err << std::endl;
+        wchar_t msgBuf[512];
+        FormatMessageW(
+            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            NULL,
+            err,
+            0,
+            msgBuf,
+            sizeof(msgBuf) / sizeof(wchar_t),
+            NULL
+        );
+
+		return;
+	}
+    std::array<char, 512> buffer;
+    while (fgets(buffer.data(), buffer.size(), pipe)) {
+        // 将多字节转换为宽字符
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, buffer.data(), -1, NULL, 0);
+        if (wlen > 0) {
+            std::wstring wbuffer(wlen, 0);
+            MultiByteToWideChar(CP_UTF8, 0, buffer.data(), -1, &wbuffer[0], wlen);
+            std::wcout << wbuffer.c_str();
+        }
+    }
+	_pclose(pipe);
+}
+
+
 struct Config {
     std::wstring output_path = L"search_log.txt"; // 默认输出文件
     std::wstring input_path = L"20250304.xlsm"; // 默认输入文件
@@ -420,7 +463,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
            { std::wstring clipboardText = GetClipboardText();
             if (!clipboardText.empty()&&last!=clipboardText) {
     						last=clipboardText;
-    					search_keyword(cfg.input_path,cfg.output_path,clipboardText,cfg.column,cfg.detail,cfg.logTofile);
+    		                if (clipboardText == L"刷新My Kindle Content") {
+    		                    // 调用 Python 脚本
+    		                    //ShellExecuteW(NULL, L"open", L"python", L"..\\src\\rungetfilenamefrompath.py", NULL, SW_HIDE);
+    		                	RunPythonAndShowResult();
+    		                } else {
+    		                    search_keyword(cfg.input_path, cfg.output_path, clipboardText, cfg.column, cfg.detail, cfg.logTofile);
+    		                }
+
+    					//search_keyword(cfg.input_path,cfg.output_path,clipboardText,cfg.column,cfg.detail,cfg.logTofile);
     								
             }            
             return 0;
