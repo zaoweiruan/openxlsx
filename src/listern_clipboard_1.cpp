@@ -22,7 +22,41 @@
 #include <memory>
 #include <array>
 
+#include <set>
+
+
 using namespace OpenXLSX;
+
+std::set<wchar_t> g_illegalChars;
+
+// 读取非法字符配置文件
+std::set<wchar_t> LoadIllegalChars(const std::wstring& filename) {
+    std::set<wchar_t> illegalChars;
+
+
+    std::wifstream fin(filename.c_str());
+
+
+    //fin.imbue(std::locale("chs")); // 或 std::locale("zh_CN.UTF-8") 视系统而定
+    wchar_t ch;
+    while (fin >> ch) {
+        illegalChars.insert(ch);
+        fin.ignore(256, L'\n'); // 跳过本行剩余内容
+    }
+    return illegalChars;
+}
+
+// 判断 text 是否包含非法字符
+bool ContainsIllegalChar(const std::wstring &text,
+		const std::set<wchar_t> &illegalChars) {
+	for (wchar_t c : text) {
+		if (illegalChars.count(c) || iswspace(c)) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void RunPythonAndShowResult() {
 
 	std::wstring cmd =
@@ -447,6 +481,12 @@ std::wstring GetClipboardText() {
         }
     }
     CloseClipboard(); // 关闭剪贴板
+
+    if (!text.empty()) {
+        if (ContainsIllegalChar(text, g_illegalChars)) {
+            return L"";
+        }
+    }
     return text;
   
     
@@ -553,6 +593,7 @@ int WINAPI wWinMain(
 {
 	setup_utf8_console();
 	parse_command_line(lpCmdLine,cfg);
+	g_illegalChars = LoadIllegalChars(L"D:\\mvnworkspace\\example\\openxlsx\\src\\illegal_chars.txt");
 
 
     // 3. 处理帮助信息
