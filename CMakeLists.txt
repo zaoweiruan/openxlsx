@@ -3,8 +3,8 @@ set(CMAKE_VERBOSE_MAKEFILEON ON)
 
 project (search_excel)
 #set(CMAKE_BUILD_TYPE RelWithDebInfo)
-set(CMAKE_BUILD_TYPE Release)
-#set(CMAKE_BUILD_TYPE Debug)
+#set(CMAKE_BUILD_TYPE Release)
+set(CMAKE_BUILD_TYPE Debug)
 
 add_library(boost_algorithm_lib INTERFACE)
 # 添加头文件所在目录（相对路径或绝对路径）

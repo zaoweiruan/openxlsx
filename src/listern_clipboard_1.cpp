@@ -50,7 +50,8 @@ std::set<wchar_t> LoadIllegalChars(const std::wstring& filename) {
 bool ContainsIllegalChar(const std::wstring &text,
 		const std::set<wchar_t> &illegalChars) {
 	for (wchar_t c : text) {
-		if (illegalChars.count(c) || iswspace(c)) {
+		//if (illegalChars.count(c) || iswspace(c)) {
+		if (illegalChars.count(c)) {
 			return true;
 		}
 	}
@@ -483,7 +484,7 @@ std::wstring GetClipboardText() {
     CloseClipboard(); // 关闭剪贴板
 
     if (!text.empty()) {
-        if (ContainsIllegalChar(text, g_illegalChars)) {
+        if (std::all_of(text.begin(), text.end(), iswspace) || ContainsIllegalChar(text, g_illegalChars)) {
             return L"";
         }
     }
