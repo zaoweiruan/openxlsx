@@ -27,8 +27,34 @@
 
 using namespace OpenXLSX;
 
-std::set<wchar_t> g_illegalChars;
+// 读取 key-value 配置文件
 
+
+// 使用示例
+
+
+std::set<wchar_t> g_illegalChars;
+std::map < std::wstring, std::wstring > config;
+
+void LoadConfig(const std::wstring &filename) {
+
+	std::wifstream fin(filename.c_str());
+    if (!fin.is_open()) {
+        std::wcerr << L"配置文件打开失败: " << filename << L'\n';
+        return;
+    }
+
+	std::wstring line;
+	while (std::getline(fin, line)) {
+		auto pos = line.find(L'=');
+		if (pos != std::wstring::npos) {
+			std::wstring key = line.substr(0, pos);
+			std::wstring value = line.substr(pos + 1);
+			config[key] = value;
+		}
+	}
+
+}
 // 读取非法字符配置文件
 std::set<wchar_t> LoadIllegalChars(const std::wstring& filename) {
     std::set<wchar_t> illegalChars;
@@ -36,12 +62,18 @@ std::set<wchar_t> LoadIllegalChars(const std::wstring& filename) {
 
     std::wifstream fin(filename.c_str());
 
+    if (!fin.is_open()) {
+        std::wcerr << L"配置文件打开失败: " << filename << L'\n';
 
+    }
+    else
+    {
     //fin.imbue(std::locale("chs")); // 或 std::locale("zh_CN.UTF-8") 视系统而定
     wchar_t ch;
     while (fin >> ch) {
         illegalChars.insert(ch);
         fin.ignore(256, L'\n'); // 跳过本行剩余内容
+    }
     }
     return illegalChars;
 }
@@ -61,7 +93,9 @@ bool ContainsIllegalChar(const std::wstring &text,
 void RunPythonAndShowResult() {
 
 	std::wstring cmd =
-			LR"(E:\Python312\python.exe D:\mvnworkspace\example\openxlsx\src\rungetfilenamefrompath.py)";
+			L"(python.exe "+config[L"autorefreshfile"]+L")";
+			//LR"(E:\Python312\python.exe D:\mvnworkspace\example\openxlsx\src\rungetfilenamefrompath.py)";
+
 
     FILE* pipe = _wpopen(cmd.c_str(), L"r");
     if (!pipe){
@@ -506,7 +540,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     						last=clipboardText;
     		                if (clipboardText == L"刷新My Kindle Content") {
     		                    // 调用 Python 脚本
-    		                    //ShellExecuteW(NULL, L"open", L"python", L"..\\src\\rungetfilenamefrompath.py", NULL, SW_HIDE);
     		                	RunPythonAndShowResult();
     		                } else {
     		                    search_keyword(cfg.input_path, cfg.output_path, clipboardText, cfg.column, cfg.detail, cfg.logTofile);
@@ -594,7 +627,11 @@ int WINAPI wWinMain(
 {
 	setup_utf8_console();
 	parse_command_line(lpCmdLine,cfg);
-	g_illegalChars = LoadIllegalChars(L"D:\\mvnworkspace\\example\\openxlsx\\src\\illegal_chars.txt");
+	LoadConfig(L".\\config.ini");
+	std::wstring autorefreshfile = config[L"illegalcharsfile"];
+
+	g_illegalChars = LoadIllegalChars(autorefreshfile);
+	//g_illegalChars = LoadIllegalChars(L"..\\src\\illegal_chars.txt");
 
 
     // 3. 处理帮助信息
@@ -607,13 +644,13 @@ int WINAPI wWinMain(
 
 // 在 main 或 wWinMain 开头添加
     if (cfg.autorefresh){
-	system("python ..\\src\\rungetfilenamefrompath.py");
+    	RunPythonAndShowResult();
     }
     // 4. 输出参数配置（演示用）
     std::wcout << L"===== 配置信息 =====" << std::endl;
     std::wcout << L"书名文件路径：" << cfg.input_path << std::endl;
     std::wcout << L"输出日志到文件：" << (cfg.logTofile ? L"开启" : L"关闭") << std::endl;
-    std::wcout << L"输出文件路径：" << cfg.output_path << std::endl;
+    if (cfg.logTofile) std::wcout << L"输出文件路径：" << cfg.output_path << std::endl;
     std::wcout << L"查找列：" << cfg.column << std::endl;
     std::wcout << L"详细日志：" << (cfg.detail ? L"开启" : L"关闭") << std::endl;
     std::wcout << L"开始监听剪贴板更新（按 Ctrl+C 退出）..." << std::endl;
