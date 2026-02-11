@@ -27,34 +27,25 @@
 
 using namespace OpenXLSX;
 
-// 读取 key-value 配置文件
+
+struct Config {
+    std::wstring output_path = L"search_log.txt"; // 默认输出文件
+    std::wstring input_path = L"20250304.xlsm"; // 默认输入文件
+    std::wstring column = L"A"; // 默认搜索列
+    std::wstring config_path = L".\\config.ini"; // 默认配置文件路径
+    std::set<wchar_t> illegalChars; // 默认非法字符集合（从配置文件加载）
+    std::map < std::wstring, std::wstring > extraConfig; // 其他配置项;
+    bool detail = false;                        // 是否显示详细日志
+    bool logTofile=false;					//是否将查找到的书籍目录写入到文件
+    bool show_help = false;                       // 是否显示帮助信息
+    bool autorefresh=false;						// 是否自动refreshE:\My Kindle Content目录文件
+
+} cfg;
 
 
-// 使用示例
 
 
-std::set<wchar_t> g_illegalChars;
-std::map < std::wstring, std::wstring > config;
 
-void LoadConfig(const std::wstring &filename) {
-
-	std::wifstream fin(filename.c_str());
-    if (!fin.is_open()) {
-        std::wcerr << L"配置文件打开失败: " << filename << L'\n';
-        return;
-    }
-
-	std::wstring line;
-	while (std::getline(fin, line)) {
-		auto pos = line.find(L'=');
-		if (pos != std::wstring::npos) {
-			std::wstring key = line.substr(0, pos);
-			std::wstring value = line.substr(pos + 1);
-			config[key] = value;
-		}
-	}
-
-}
 // 读取非法字符配置文件
 std::set<wchar_t> LoadIllegalChars(const std::wstring& filename) {
     std::set<wchar_t> illegalChars;
@@ -77,7 +68,27 @@ std::set<wchar_t> LoadIllegalChars(const std::wstring& filename) {
     }
     return illegalChars;
 }
+void LoadConfig(struct Config &cfg) {
 
+	std::wifstream fin(cfg.config_path.c_str());
+    if (!fin.is_open()) {
+        std::wcerr << L"配置文件打开失败: " << cfg.config_path << L'\n';
+        return;
+    }
+
+	std::wstring line;
+	while (std::getline(fin, line)) {
+		auto pos = line.find(L'=');
+		if (pos != std::wstring::npos) {
+			std::wstring key = line.substr(0, pos);
+			std::wstring value = line.substr(pos + 1);
+			cfg.extraConfig[key] = value;
+		}
+	}
+
+
+	cfg.illegalChars = LoadIllegalChars(cfg.extraConfig[L"illegalcharsfile"]);
+}
 // 判断 text 是否包含非法字符
 bool ContainsIllegalChar(const std::wstring &text,
 		const std::set<wchar_t> &illegalChars) {
@@ -93,7 +104,7 @@ bool ContainsIllegalChar(const std::wstring &text,
 void RunPythonAndShowResult() {
 
 	std::wstring cmd =
-			L"(python.exe "+config[L"autorefreshfile"]+L")";
+			L"(python.exe "+cfg.extraConfig[L"autorefreshfile"]+L")";
 			//LR"(E:\Python312\python.exe D:\mvnworkspace\example\openxlsx\src\rungetfilenamefrompath.py)";
 
 
@@ -130,15 +141,6 @@ void RunPythonAndShowResult() {
 }
 
 
-struct Config {
-    std::wstring output_path = L"search_log.txt"; // 默认输出文件
-    std::wstring input_path = L"20250304.xlsm"; // 默认输入文件
-    std::wstring column = L"A"; // 默认输入文件
-    bool detail = false;                        // 是否显示详细日志
-    bool logTofile=false;					//是否将查找到的书籍目录写入到文件
-    bool show_help = false;                       // 是否显示帮助信息
-    bool autorefresh=false;						// 是否自动refreshE:\My Kindle Content目录文件
-} cfg;
 
 // 解析宽字符命令行参数
 void parse_command_line(LPWSTR lpCmdLine,Config &cfg) {
@@ -518,7 +520,7 @@ std::wstring GetClipboardText() {
     CloseClipboard(); // 关闭剪贴板
 
     if (!text.empty()) {
-        if (std::all_of(text.begin(), text.end(), iswspace) || ContainsIllegalChar(text, g_illegalChars)) {
+        if (std::all_of(text.begin(), text.end(), iswspace) || ContainsIllegalChar(text, cfg.illegalChars)) {
             return L"";
         }
     }
@@ -627,11 +629,7 @@ int WINAPI wWinMain(
 {
 	setup_utf8_console();
 	parse_command_line(lpCmdLine,cfg);
-	LoadConfig(L".\\config.ini");
-	std::wstring autorefreshfile = config[L"illegalcharsfile"];
-
-	g_illegalChars = LoadIllegalChars(autorefreshfile);
-	//g_illegalChars = LoadIllegalChars(L"..\\src\\illegal_chars.txt");
+	LoadConfig(cfg); // 加载配置文件（包括非法字符列表）
 
 
     // 3. 处理帮助信息

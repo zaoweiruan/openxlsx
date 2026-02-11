@@ -1,4 +1,5 @@
 使用Openxls从excel文件中读取已下载书籍名称，并与剪贴板内容做比对，查询是否已下载
 命令行
 .\search_book_service.exe -f C:/Users/dsm/Desktop/20250304.xlsm -d -l C:/Users/dsm/Desktop/search_log.txt
-注：待搜列中间不能有空行，代码获取最大行数时会结束于空行
+注：1.待搜列中间不能有空行，获取每个sheet最大行数时会结束于空行
+   2.配置文件放在可执行文件同目录下，文件名为config.ini
