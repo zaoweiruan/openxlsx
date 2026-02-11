@@ -39,7 +39,7 @@ struct Config {
     bool logTofile=false;					//是否将查找到的书籍目录写入到文件
     bool show_help = false;                       // 是否显示帮助信息
     bool autorefresh=false;						// 是否自动refreshE:\My Kindle Content目录文件
-
+    std::wstring errMsg=L"";
 } cfg;
 
 
@@ -47,14 +47,16 @@ struct Config {
 
 
 // 读取非法字符配置文件
-std::set<wchar_t> LoadIllegalChars(const std::wstring& filename) {
+bool LoadIllegalChars(Config &cfg) {
     std::set<wchar_t> illegalChars;
 
 
-    std::wifstream fin(filename.c_str());
+    std::wifstream fin(cfg.extraConfig[L"illegalcharsfile"].c_str());
 
     if (!fin.is_open()) {
-        std::wcerr << L"配置文件打开失败: " << filename << L'\n';
+
+    	cfg.errMsg+= L"非法字符文件打开失败: " +cfg.extraConfig[L"illegalcharsfile"]+L'\n';
+    	return false;
 
     }
     else
@@ -62,19 +64,22 @@ std::set<wchar_t> LoadIllegalChars(const std::wstring& filename) {
     //fin.imbue(std::locale("chs")); // 或 std::locale("zh_CN.UTF-8") 视系统而定
     wchar_t ch;
     while (fin >> ch) {
-        illegalChars.insert(ch);
+    	cfg.illegalChars.insert(ch);
         fin.ignore(256, L'\n'); // 跳过本行剩余内容
     }
     }
-    return illegalChars;
+    return true;
 }
-void LoadConfig(struct Config &cfg) {
+bool LoadConfig(struct Config &cfg) {
 
 	std::wifstream fin(cfg.config_path.c_str());
     if (!fin.is_open()) {
-        std::wcerr << L"配置文件打开失败: " << cfg.config_path << L'\n';
-        return;
+    	cfg.errMsg=L"配置文件打开失败: " + cfg.config_path + L'\n';
+        //std::wcerr << L"配置文件打开失败: " << cfg.config_path << L'\n';
+        return false;
     }
+
+    	cfg.errMsg=L"配置文件加载成功: " + cfg.config_path + L'\n';
 
 	std::wstring line;
 	while (std::getline(fin, line)) {
@@ -87,7 +92,8 @@ void LoadConfig(struct Config &cfg) {
 	}
 
 
-	cfg.illegalChars = LoadIllegalChars(cfg.extraConfig[L"illegalcharsfile"]);
+	return  LoadIllegalChars(cfg);
+
 }
 // 判断 text 是否包含非法字符
 bool ContainsIllegalChar(const std::wstring &text,
@@ -629,7 +635,6 @@ int WINAPI wWinMain(
 {
 	setup_utf8_console();
 	parse_command_line(lpCmdLine,cfg);
-	LoadConfig(cfg); // 加载配置文件（包括非法字符列表）
 
 
     // 3. 处理帮助信息
@@ -638,6 +643,11 @@ int WINAPI wWinMain(
         return 0;
     }
 
+	if 	(!LoadConfig(cfg))
+	{
+		std::wcout << cfg.errMsg << std::endl;
+		return 0;
+	} // 加载配置文件（包括非法字符列表）
 
 
 // 在 main 或 wWinMain 开头添加
@@ -652,6 +662,7 @@ int WINAPI wWinMain(
     std::wcout << L"查找列：" << cfg.column << std::endl;
     std::wcout << L"详细日志：" << (cfg.detail ? L"开启" : L"关闭") << std::endl;
     std::wcout << L"开始监听剪贴板更新（按 Ctrl+C 退出）..." << std::endl;
+
     StartClipboardListener();
     return 0;
 }
