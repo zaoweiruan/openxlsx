@@ -34,7 +34,7 @@ set_target_properties(search_excel PROPERTIES SOURCES "${PROJECT_SOURCE_DIR}/src
 set_target_properties(search_excel PROPERTIES OUTPUT_NAME "search_book_service")
 
 set_target_properties(search_excel PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
-target_link_libraries(search_excel  OpenXLSX::OpenXLSX boost_algorithm_lib Comctl32 Shlwapi user32)
+target_link_libraries(search_excel  OpenXLSX::OpenXLSX boost_algorithm_lib Comctl32 Shlwapi user32 ws2_32)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lstdc++ -std=c++17 -g -Wall  -O2 -mconsole -municode ")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lstdc++ -std=c++17 -g -Wall  -O2 -mwindows -municode ")

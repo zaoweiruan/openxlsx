@@ -23,6 +23,10 @@
 #include <array>
 
 #include <set>
+#include <regex>
+#include <algorithm>
+#include <winsock2.h>
+#include <ws2tcpip.h>
 
 
 using namespace OpenXLSX;
@@ -41,9 +45,6 @@ struct Config {
     bool autorefresh=false;						// 是否自动refreshE:\My Kindle Content目录文件
     std::wstring errMsg=L"";
 } cfg;
-
-
-
 
 
 // 读取非法字符配置文件
@@ -106,7 +107,44 @@ bool ContainsIllegalChar(const std::wstring &text,
 	}
 	return false;
 }
+// 判断是否为有效的 IPv4 地址
 
+
+std::wstring trim(const std::wstring& str)
+{
+    size_t first = str.find_first_not_of(L" \t\r\n");
+    if (first == std::wstring::npos)
+        return L"";
+
+    size_t last = str.find_last_not_of(L" \t\r\n");
+    return str.substr(first, last - first + 1);
+}
+
+
+bool isValidIPv4(const std::wstring& ip)
+{
+    sockaddr_in sa;
+    return InetPtonW(AF_INET, ip.c_str(), &(sa.sin_addr)) == 1;
+}
+
+bool domainExists(const std::wstring& domain)
+{
+    ADDRINFOW hints = {0};
+    ADDRINFOW* result = nullptr;
+
+    hints.ai_family = AF_UNSPEC;
+
+    int ret = GetAddrInfoW(domain.c_str(), nullptr, &hints, &result);
+
+    if (ret == 0)
+    {
+        FreeAddrInfoW(result);
+        return true;
+    }
+    return false;
+}
+
+// 调用 Python 脚本并显示结果
 void RunPythonAndShowResult() {
 
 	std::wstring cmd =
@@ -526,8 +564,8 @@ std::wstring GetClipboardText() {
     CloseClipboard(); // 关闭剪贴板
 
     if (!text.empty()) {
-        if (std::all_of(text.begin(), text.end(), iswspace) || ContainsIllegalChar(text, cfg.illegalChars)) {
-            return L"";
+        if (std::all_of(text.begin(), text.end(), iswspace) || ContainsIllegalChar(text, cfg.illegalChars)||isValidIPv4(text)||domainExists(text)) {
+            text= L"";
         }
     }
     return text;
@@ -662,7 +700,9 @@ int WINAPI wWinMain(
     std::wcout << L"查找列：" << cfg.column << std::endl;
     std::wcout << L"详细日志：" << (cfg.detail ? L"开启" : L"关闭") << std::endl;
     std::wcout << L"开始监听剪贴板更新（按 Ctrl+C 退出）..." << std::endl;
-
+    WSADATA wsaData;
+    WSAStartup(MAKEWORD(2,2), &wsaData);
     StartClipboardListener();
+    WSACleanup();
     return 0;
 }
