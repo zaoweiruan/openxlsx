@@ -13,6 +13,8 @@ target_include_directories(boost_algorithm_lib INTERFACE
 )
 set(OpenXLSX_DIR "E:/OpenXLSX/lib/cmake/OpenXLSX")
 find_package(OpenXLSX REQUIRED)
+find_package(unofficial-sqlite3 CONFIG REQUIRED)
+
 #add_library(openxlsx_lib STATIC IMPORTE)
 # 添加头文件所在目录（相对路径或绝对路径）
 #target_include_directories(boost_algorithm_lib INTERFACE
@@ -26,15 +28,25 @@ find_package(OpenXLSX REQUIRED)
 #add_definitions(-DBOOST_ALL_STATIC_LINK)
 
 #find_package(Boost  CONFIG REQUIRED  json )
-add_executable(search_excel)
 
-#set_target_properties(search_excel PROPERTIES SOURCES "${PROJECT_SOURCE_DIR}/src/excel_search_service_3.cpp")
+add_executable(search_excel)
+add_executable(isValidIPv4orDomainName)
+add_executable(validProxy)
+
+
 set_target_properties(search_excel PROPERTIES SOURCES "${PROJECT_SOURCE_DIR}/src/listern_clipboard_1.cpp")
-#set_target_properties(search_excel PROPERTIES SOURCES "${PROJECT_SOURCE_DIR}/src/search_excel_all_sheets_gui_2.cpp")
+set_target_properties(isValidIPv4orDomainName PROPERTIES SOURCES "${PROJECT_SOURCE_DIR}/src/isValidIPv4orDomainName.cpp")
+set_target_properties(validProxy PROPERTIES SOURCES "${PROJECT_SOURCE_DIR}/src/validProxy.cpp")
+
+
 set_target_properties(search_excel PROPERTIES OUTPUT_NAME "search_book_service")
 
 set_target_properties(search_excel PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
-target_link_libraries(search_excel  OpenXLSX::OpenXLSX boost_algorithm_lib Comctl32 Shlwapi user32 ws2_32)
+set_target_properties(isValidIPv4orDomainName PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
+set_target_properties(validProxy PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/bin")
 
+target_link_libraries(search_excel  OpenXLSX::OpenXLSX boost_algorithm_lib Comctl32 Shlwapi user32 ws2_32)
+target_link_options(isValidIPv4orDomainName PRIVATE -mconsole -municode)
+target_link_libraries(validProxy PRIVATE unofficial::sqlite3::sqlite3 Comctl32  ws2_32)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lstdc++ -std=c++17 -g -Wall  -O2 -mconsole -municode ")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lstdc++ -std=c++17 -g -Wall  -O2 -mwindows -municode ")

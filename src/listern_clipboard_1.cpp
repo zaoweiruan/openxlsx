@@ -1,3 +1,4 @@
+#include <winsock2.h>
 #include <windows.h>
 #include <iostream>
 #include <string>
@@ -25,7 +26,7 @@
 #include <set>
 #include <regex>
 #include <algorithm>
-#include <winsock2.h>
+
 #include <ws2tcpip.h>
 
 
@@ -106,6 +107,24 @@ bool ContainsIllegalChar(const std::wstring &text,
 		}
 	}
 	return false;
+}
+
+// 判断是否为 CJK 字符（中文、日文、韩文等）
+bool is_cjk_char(wchar_t wc) {
+    return (wc >= 0x4E00 && wc <= 0x9FFF) ||    // 基本汉字
+           (wc >= 0x3400 && wc <= 0x4DBF) ||    // 扩展A
+           (wc >= 0x3000 && wc <= 0x30FF) ||    // 日文平假名/片假名等
+           (wc >= 0xFF00 && wc <= 0xFFEF);      // 全角
+}
+
+// 判断整个 std::wstring 是否**包含**中文字符
+bool has_chinese(const std::wstring& ws) {
+    for (wchar_t wc : ws) {
+        if (is_cjk_char(wc)) {
+            return true;
+        }
+    }
+    return false;
 }
 // 判断是否为有效的 IPv4 地址
 
@@ -564,9 +583,16 @@ std::wstring GetClipboardText() {
     CloseClipboard(); // 关闭剪贴板
 
     if (!text.empty()) {
-        if (std::all_of(text.begin(), text.end(), iswspace) || ContainsIllegalChar(text, cfg.illegalChars)||isValidIPv4(text)||domainExists(text)) {
+        //if (std::all_of(text.begin(), text.end(), iswspace) || ContainsIllegalChar(text, cfg.illegalChars)||isValidIPv4(text)||domainExists(text)) {
+        if (std::all_of(text.begin(), text.end(), iswspace) || ContainsIllegalChar(text, cfg.illegalChars)) {
             text= L"";
         }
+		if (has_chinese(text)) {
+			text = trim(text);
+		}
+		else if (isValidIPv4(text)||domainExists(text)) {
+			text= L"";
+		}
     }
     return text;
   
