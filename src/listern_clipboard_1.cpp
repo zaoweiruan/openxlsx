@@ -48,57 +48,99 @@ struct Config {
 } cfg;
 
 
-// 读取非法字符配置文件
+// UTF-8 文件读取函数（MinGW codecvt 不可靠，使用 Windows API）
+inline std::wstring ReadUtf8TextFile(const std::wstring& path) {
+    // 调试输出
+    std::wcerr << L"[DBG ReadUtf8] 尝试打开: " << path << std::endl;
+    
+    // 使用 Windows API 打开宽字符串路径的文件
+    FILE* fp = nullptr;
+    errno_t err = _wfopen_s(&fp, path.c_str(), L"rb");
+    if (err != 0 || !fp) {
+        std::wcerr << L"[DBG ReadUtf8] _wfopen_s 失败, err=" << err << std::endl;
+        return L"";
+    }
+    
+    std::string content;
+    char buffer[4096];
+    size_t bytesRead;
+    while ((bytesRead = fread(buffer, 1, sizeof(buffer), fp)) > 0) {
+        content.append(buffer, bytesRead);
+    }
+    fclose(fp);
+    
+    if (content.empty()) return L"";
+    
+    // 跳过 UTF-8 BOM（EF BB BF）
+    size_t start = 0;
+    if (content.size() >= 3 && 
+        static_cast<unsigned char>(content[0]) == 0xEF &&
+        static_cast<unsigned char>(content[1]) == 0xBB &&
+        static_cast<unsigned char>(content[2]) == 0xBF) {
+        start = 3;
+    }
+    
+    // 转换为 UTF-16 LE
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, content.data() + start, -1, nullptr, 0);
+    if (wlen <= 0) return L"";
+    std::wstring result(wlen - 1, 0);
+    MultiByteToWideChar(CP_UTF8, 0, content.data() + start, -1, &result[0], wlen);
+    return result;
+}
+
 bool LoadIllegalChars(Config &cfg) {
     std::set<wchar_t> illegalChars;
 
-
-    std::wifstream fin(cfg.extraConfig[L"illegalcharsfile"].c_str());
-
-    if (!fin.is_open()) {
-
+    // 调试：输出尝试读取的路径
+    std::wcerr << L"[DBG] 尝试打开非法字符文件: " << cfg.extraConfig[L"illegalcharsfile"] << std::endl;
+    std::wstring content = ReadUtf8TextFile(cfg.extraConfig[L"illegalcharsfile"]);
+    std::wcerr << L"[DBG] 读取结果长度: " << content.size() << std::endl;
+    if (content.empty()) {
     	cfg.errMsg+= L"非法字符文件打开失败: " +cfg.extraConfig[L"illegalcharsfile"]+L'\n';
     	return false;
-
     }
-    else
-    {
-    //fin.imbue(std::locale("chs")); // 或 std::locale("zh_CN.UTF-8") 视系统而定
+    std::wistringstream sin(content);
     wchar_t ch;
-    while (fin >> ch) {
+    while (sin >> ch) {
     	cfg.illegalChars.insert(ch);
-        fin.ignore(256, L'\n'); // 跳过本行剩余内容
-    }
+        sin.ignore(256, L'\n');
     }
     return true;
 }
 bool LoadConfig(struct Config &cfg) {
-
-	std::wifstream fin(cfg.config_path.c_str());
-    if (!fin.is_open()) {
+    // 使用平台函数读取 UTF-8 配置文件（MinGW codecvt 不可靠）
+    std::wstring content = ReadUtf8TextFile(cfg.config_path);
+    if (content.empty()) {
     	cfg.errMsg=L"配置文件打开失败: " + cfg.config_path + L'\n';
         //std::wcerr << L"配置文件打开失败: " << cfg.config_path << L'\n';
         return false;
     }
 
-    	cfg.errMsg=L"配置文件加载成功: " + cfg.config_path + L'\n';
+    cfg.errMsg=L"配置文件加载成功: " + cfg.config_path + L'\n';
 
-	std::wstring line;
-	while (std::getline(fin, line)) {
-		auto pos = line.find(L'=');
-		if (pos != std::wstring::npos) {
-			std::wstring key = line.substr(0, pos);
-			std::wstring value = line.substr(pos + 1);
-			cfg.extraConfig[key] = value;
-		}
-	}
+    std::wistringstream fin(content);
+    std::wstring line;
+    while (std::getline(fin, line)) {
+        auto pos = line.find(L'=');
+        if (pos != std::wstring::npos) {
+            std::wstring key = line.substr(0, pos);
+            std::wstring value = line.substr(pos + 1);
+            // 去掉 value 中的注释（; 开头）
+            size_t commentPos = value.find(L';');
+            if (commentPos != std::wstring::npos) {
+                value = value.substr(0, commentPos);
+            }
+            // 去掉尾部 \r（CRLF 文件用 getline 会保留 carriage return）
+            if (!key.empty() && key.back() == L'\r') key.pop_back();
+            if (!value.empty() && value.back() == L'\r') value.pop_back();
+            cfg.extraConfig[key] = value;
+        }
+    }
 
-
-	return  LoadIllegalChars(cfg);
-
+    return LoadIllegalChars(cfg);
 }
 // 判断 text 是否包含非法字符
-bool ContainsIllegalChar(const std::wstring &text,
+inline bool ContainsIllegalChar(const std::wstring &text,
 		const std::set<wchar_t> &illegalChars) {
 	for (wchar_t c : text) {
 		//if (illegalChars.count(c) || iswspace(c)) {
@@ -108,9 +150,23 @@ bool ContainsIllegalChar(const std::wstring &text,
 	}
 	return false;
 }
-
+// 判断是否为实数
+bool isReal(const std::wstring& text) {
+	double outValue;
+	std::wistringstream iss(text);
+	    // 尝试转换
+	    if (!(iss >> outValue)) {
+	        return false;
+	    }
+	    // 确保没有多余字符（避免 "123abc" 这种被误转）
+	    wchar_t c;
+	    if (iss >> c) {
+	        return false;
+	    }
+	    return true;
+}
 // 判断是否为 CJK 字符（中文、日文、韩文等）
-bool is_cjk_char(wchar_t wc) {
+inline bool is_cjk_char(wchar_t wc) {
     return (wc >= 0x4E00 && wc <= 0x9FFF) ||    // 基本汉字
            (wc >= 0x3400 && wc <= 0x4DBF) ||    // 扩展A
            (wc >= 0x3000 && wc <= 0x30FF) ||    // 日文平假名/片假名等
@@ -118,7 +174,7 @@ bool is_cjk_char(wchar_t wc) {
 }
 
 // 判断整个 std::wstring 是否**包含**中文字符
-bool has_chinese(const std::wstring& ws) {
+inline bool has_chinese(const std::wstring& ws) {
     for (wchar_t wc : ws) {
         if (is_cjk_char(wc)) {
             return true;
@@ -129,7 +185,7 @@ bool has_chinese(const std::wstring& ws) {
 // 判断是否为有效的 IPv4 地址
 
 
-std::wstring trim(const std::wstring& str)
+inline std::wstring trim(const std::wstring& str)
 {
     size_t first = str.find_first_not_of(L" \t\r\n");
     if (first == std::wstring::npos)
@@ -163,6 +219,9 @@ bool domainExists(const std::wstring& domain)
     return false;
 }
 
+// 前向声明
+void AppendLogLine(const std::wstring& line);
+
 // 调用 Python 脚本并显示结果
 void RunPythonAndShowResult() {
 
@@ -170,6 +229,7 @@ void RunPythonAndShowResult() {
 			L"(python.exe "+cfg.extraConfig[L"autorefreshfile"]+L")";
 			//LR"(E:\Python312\python.exe D:\mvnworkspace\example\openxlsx\src\rungetfilenamefrompath.py)";
 
+    AppendLogLine(L"=== 刷新目录: 开始 ===");
 
     FILE* pipe = _wpopen(cmd.c_str(), L"r");
     if (!pipe){
@@ -177,6 +237,7 @@ void RunPythonAndShowResult() {
 		DWORD err = GetLastError();
 		std::wcout << L"无法启动 Python 脚本" << std::endl;
         std::wcout << L"错误码: " << err << std::endl;
+        AppendLogLine(L"错误：无法启动 Python 脚本，错误码: " + std::to_wstring(err));
         wchar_t msgBuf[512];
         FormatMessageW(
             FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
@@ -201,6 +262,7 @@ void RunPythonAndShowResult() {
         }
     }
 	_pclose(pipe);
+    AppendLogLine(L"=== 刷新目录: 完成 ===");
 }
 
 
@@ -538,18 +600,44 @@ void search_keyword(const std::wstring& excel_path,const std::wstring &output_pa
        
     }
 
+// 辅助：当 logTofile 启用时追加一行到日志文件（UTF-8）
+void AppendLogLine(const std::wstring& line) {
+    if (!cfg.logTofile) return;
+    std::string outPath = WideCharConvertMultiByte(cfg.output_path, CP_UTF8);
+    std::ofstream log(outPath, std::ios::app);
+    if (!log.is_open()) return;
+    std::string utf8Line = WideCharConvertMultiByte(line, CP_UTF8);
+    log << utf8Line.c_str() << std::endl;
+    log.close();
+}
 
 // 全局窗口类名和窗口句柄
 const wchar_t* g_ClassName = L"ClipboardListenerClass";
 HWND g_Hwnd = nullptr;
 
-// 读取剪贴板中的文本内容（返回 Unicode 字符串）
-std::wstring GetClipboardText() {
+// 读取剪贴板中的原始文本内容（不作任何过滤）
+std::wstring GetRawClipboardText() {
     std::wstring text;
 
     // 打开剪贴板（需传入窗口句柄）
+
     if (!OpenClipboard(g_Hwnd)) {
-        std::wcerr << L"OpenClipboard 失败，错误码：" << GetLastError() << std::endl;
+    	DWORD err = GetLastError();
+        //std::wcerr << L"OpenClipboard 失败，错误码：" << err << std::endl;
+    	LPWSTR buffer = nullptr;
+    	FormatMessageW(
+    	    FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+    	    NULL,
+    	    err,
+    	    MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+    	    (LPWSTR)&buffer,
+    	    0,
+    	    NULL
+    	);
+
+    	std::wcout << L"OpenClipboard 失败，错误码：" << err << L"\n错误信息：" << buffer << std::endl;
+
+    	LocalFree(buffer);
         return text;
     }
 
@@ -582,43 +670,98 @@ std::wstring GetClipboardText() {
     }
     CloseClipboard(); // 关闭剪贴板
 
-    if (!text.empty()) {
-        //if (std::all_of(text.begin(), text.end(), iswspace) || ContainsIllegalChar(text, cfg.illegalChars)||isValidIPv4(text)||domainExists(text)) {
-        if (std::all_of(text.begin(), text.end(), iswspace) || ContainsIllegalChar(text, cfg.illegalChars)) {
-            text= L"";
-        }
-		if (has_chinese(text)) {
-			text = trim(text);
-		}
-		else if (isValidIPv4(text)||domainExists(text)) {
-			text= L"";
-		}
-    }
     return text;
-  
-    
+}
+
+// 对文本应用搜索专用的过滤链（非法字符、IP/域名等）
+std::wstring FilterForSearch(const std::wstring& text) {
+    if (text.empty()) return L"";
+
+    std::wstring result = text;
+
+    // 字符校验：全空、全数字、包含非法字符、IP地址、域名等都视为无效输入，返回空字符串
+    if (std::all_of(result.begin(), result.end(), [](wchar_t c) {
+        return iswspace(c)||iswdigit(static_cast<wint_t>(c))||c == L'.'||c == L'-';
+    }) || ContainsIllegalChar(result, cfg.illegalChars)) {
+        return L"";
+    }
+    if (has_chinese(result)) {
+        result = trim(result);
+    }
+    else if (isValidIPv4(result)||domainExists(result)) {
+        return L"";
+    }
+    return result;
 }
 
 // 窗口过程（处理剪贴板更新消息）
+// 前向声明：批量重命名函数
+void BatchRename(const std::wstring& dirPath, const std::wstring& rnpPath);
+
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	    static std::wstring last=L"";
 
 	try{
     switch (msg) {
         case WM_CLIPBOARDUPDATE:
-            // 剪贴板内容更新，读取内容
-           { std::wstring clipboardText = GetClipboardText();
-            if (!clipboardText.empty()&&last!=clipboardText) {
-    						last=clipboardText;
-    		                if (clipboardText == L"刷新My Kindle Content") {
-    		                    // 调用 Python 脚本
-    		                	RunPythonAndShowResult();
-    		                } else {
-    		                    search_keyword(cfg.input_path, cfg.output_path, clipboardText, cfg.column, cfg.detail, cfg.logTofile);
-    		                }
+            // 剪贴板内容更新，读取原始文本（不含过滤）
+            { std::wstring rawText = GetRawClipboardText();
+            if (!rawText.empty()&&last!=rawText) {
+    						last=rawText;
+                // 诊断日志：输出收到的原始剪贴板内容（未过滤，便于调试）
+                std::wcout << L"[DEBUG] 收到剪贴板: " << rawText << std::endl;
+                AppendLogLine(L"[DEBUG] 收到剪贴板: " + rawText);
 
-    					//search_keyword(cfg.input_path,cfg.output_path,clipboardText,cfg.column,cfg.detail,cfg.logTofile);
-    								
+                // 特殊命令检查：必须在过滤之前，避免 `\` 等字符被非法字符过滤丢弃
+                if (rawText == L"刷新My Kindle Content") {
+                    // 调用 Python 脚本
+                	RunPythonAndShowResult();
+                } else if ([&]() -> bool {
+                    // 从 config 读取批量重命名触发前缀，支持空值禁用
+                    std::wstring prefix = L"批量重命名 ";
+                    auto it = cfg.extraConfig.find(L"renamerprefix");
+                    if (it != cfg.extraConfig.end()) {
+                        if (it->second.empty()) return false; // 空值 = 禁用
+                        prefix = it->second;
+                    }
+                    if (rawText.find(prefix) != 0) {
+                        AppendLogLine(L"[DBG] 前缀不匹配: prefix='" + prefix + L"'");
+                        return false;
+                    }
+                    AppendLogLine(L"[DBG] 前缀匹配成功，prefix='" + prefix + L"'");
+    std::wstring dirPath = trim(rawText.substr(prefix.size()));
+    dirPath = trim(dirPath);
+    // 自动剥离路径两端双引号（用户从资源管理器复制路径时可能带引号）
+    if (dirPath.size() >= 2 && dirPath.front() == L'"' && dirPath.back() == L'"') {
+        dirPath = dirPath.substr(1, dirPath.size() - 2);
+    }
+                    AppendLogLine(L"[DBG] dirPath 解析结果: '" + dirPath + L"', 长度=" + std::to_wstring(dirPath.size()) + L", 为空=" + (dirPath.empty() ? L"是" : L"否"));
+    if (!dirPath.empty()) {
+        std::wcout << L"批量重命名指令已识别，目标: " << dirPath << std::endl;
+                        AppendLogLine(L"批量重命名指令已识别，目标: " + dirPath);
+                        auto it = cfg.extraConfig.find(L"renamerpreset");
+                        if (it != cfg.extraConfig.end() && !it->second.empty()) {
+                            wchar_t absPath[MAX_PATH] = {0};
+                            GetFullPathNameW(it->second.c_str(), MAX_PATH, absPath, nullptr);
+                            AppendLogLine(L"规则文件: " + std::wstring(absPath));
+                            BatchRename(dirPath, absPath);
+                        } else {
+                            std::wcout << L"错误：config.ini 中未配置 renamerpreset" << std::endl;
+                            AppendLogLine(L"错误：config.ini 中未配置 renamerpreset");
+                        }
+                    } else {
+                        AppendLogLine(L"[DBG] dirPath 为空，放弃批量重命名");
+                    }
+                    return true;
+                }()) {
+                    // lambda 已处理，条件成功
+                } else {
+                    // 普通搜索路径：此时才应用过滤链
+                    std::wstring searchText = FilterForSearch(rawText);
+                    if (!searchText.empty()) {
+                        search_keyword(cfg.input_path, cfg.output_path, searchText, cfg.column, cfg.detail, cfg.logTofile);
+                    }
+                }
             }            
             return 0;
 					}
@@ -640,6 +783,238 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             PostQuitMessage(0);
             return 0;
     }
+}
+
+// ============================================================
+// 批量重命名功能 - ReNamer .rnp 预设解析与重命名引擎
+// ============================================================
+
+enum class RnpRuleType { Remove, Replace, RegEx };
+
+struct RnpRule {
+    RnpRuleType type = RnpRuleType::Remove;
+    bool enabled = true;
+    std::wstring matchText;
+    std::wstring replaceText;
+    bool skipExtension = true;
+    bool caseSensitive = false;
+    bool useWildcards = false;
+    bool wholeWordsOnly = false;
+    int which = 3; // 1=first, 2=last, 3=all
+};
+
+// URL 解码：将 %XX 编码的 UTF-8 序列解码为宽字符串
+std::wstring UrlDecode(const std::wstring& input) {
+    if (input.empty()) return L"";
+    std::string utf8bytes;
+    utf8bytes.reserve(input.size());
+    for (size_t i = 0; i < input.size(); ++i) {
+        if (input[i] == L'%' && i + 2 < input.size()) {
+            wchar_t hex[3] = { input[i+1], input[i+2], 0 };
+            wchar_t* end;
+            unsigned long byteVal = wcstoul(hex, &end, 16);
+            if (end == hex + 2) {
+                utf8bytes.push_back(static_cast<char>(byteVal));
+                i += 2; continue;
+            }
+        } else if (input[i] == L'+') {
+            utf8bytes.push_back(' '); continue;
+        }
+        char utf8Buf[4] = {0};
+        int len = WideCharToMultiByte(CP_UTF8, 0, &input[i], 1, utf8Buf, 4, nullptr, nullptr);
+        for (int j = 0; j < len; ++j) utf8bytes.push_back(utf8Buf[j]);
+    }
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8bytes.c_str(), -1, nullptr, 0);
+    if (wlen <= 0) return L"";
+    std::wstring result(wlen - 1, 0);
+    MultiByteToWideChar(CP_UTF8, 0, utf8bytes.c_str(), -1, &result[0], wlen);
+    return result;
+}
+
+// 解析 .rnp 预设文件为规则列表
+std::vector<RnpRule> ParseRnpRules(const std::wstring& rnpPath) {
+    std::vector<RnpRule> rules;
+    // 使用平台函数读取 UTF-8 .rnp 文件
+    std::wstring content = ReadUtf8TextFile(rnpPath);
+    if (content.empty()) {
+        std::wcout << L"错误：无法打开 .rnp 文件: " << rnpPath << std::endl;
+        return rules;
+    }
+    std::wistringstream fin(content);
+    std::wstring line;
+    std::map<std::wstring, std::wstring> ruleKV;
+    bool inRule = false;
+
+    auto finishRule = [&]() {
+        if (!inRule || !ruleKV.count(L"ID")) return;
+        RnpRule rule;
+        std::wstring id = ruleKV[L"ID"];
+        if      (id == L"Remove")  rule.type = RnpRuleType::Remove;
+        else if (id == L"Replace") rule.type = RnpRuleType::Replace;
+        else if (id == L"RegEx")   rule.type = RnpRuleType::RegEx;
+        else return;
+        if (ruleKV.count(L"Marked")) rule.enabled = (ruleKV[L"Marked"] == L"1");
+        if (ruleKV.count(L"Config")) {
+            std::wistringstream cs(ruleKV[L"Config"]);
+            std::wstring seg;
+            while (std::getline(cs, seg, L';')) {
+                auto colon = seg.find(L':');
+                if (colon == std::wstring::npos) continue;
+                std::wstring k = seg.substr(0, colon);
+                std::wstring v = UrlDecode(seg.substr(colon + 1));
+                if      (k == L"TEXT" || k == L"TEXTWHAT" || k == L"EXPRESSION") rule.matchText = v;
+                else if (k == L"TEXTWITH" || k == L"REPLACE")                    rule.replaceText = v;
+                else if (k == L"WHICH")                                          rule.which = std::stoi(v);
+                else if (k == L"SKIPEXTENSION")  rule.skipExtension  = (v == L"1");
+                else if (k == L"CASESENSITIVE")  rule.caseSensitive  = (v == L"1");
+                else if (k == L"USEWILDCARDS")   rule.useWildcards   = (v == L"1");
+                else if (k == L"WHOLEWORDSONLY") rule.wholeWordsOnly = (v == L"1");
+            }
+        }
+        rules.push_back(rule);
+    };
+
+    while (std::getline(fin, line)) {
+        if (!line.empty() && line.back() == L'\r') line.pop_back();
+        if (line.empty()) continue;
+        if (line.front() == L'[' && line.back() == L']') { finishRule(); ruleKV.clear(); inRule = true; continue; }
+        if (inRule) {
+            auto eq = line.find(L'=');
+            if (eq != std::wstring::npos) ruleKV[line.substr(0, eq)] = line.substr(eq + 1);
+        }
+    }
+    finishRule();
+    return rules;
+}
+
+// 对单个文件基名应用所有启用规则
+std::wstring ApplyRules(const std::wstring& baseName, const std::vector<RnpRule>& rules) {
+    if (rules.empty()) return baseName;
+    std::wstring result = baseName;
+
+    for (const auto& rule : rules) {
+        if (!rule.enabled || rule.matchText.empty()) continue;
+        try {
+            if (rule.type == RnpRuleType::Remove || rule.type == RnpRuleType::Replace) {
+                bool isReplace = (rule.type == RnpRuleType::Replace);
+                auto ciSearch = [&](const std::wstring& s, size_t start) -> std::wstring::size_type {
+                    auto it = std::search(s.begin() + start, s.end(),
+                        rule.matchText.begin(), rule.matchText.end(),
+                        [](wchar_t a, wchar_t b) { return towlower(a) == towlower(b); });
+                    return (it != s.end()) ? (it - s.begin()) : std::wstring::npos;
+                };
+                auto ciRSearch = [&](const std::wstring& s) -> std::wstring::size_type {
+                    std::wstring ls = s, lm = rule.matchText;
+                    std::transform(ls.begin(), ls.end(), ls.begin(), towlower);
+                    std::transform(lm.begin(), lm.end(), lm.begin(), towlower);
+                    return ls.rfind(lm);
+                };
+                if (rule.which == 1) { // first
+                    auto pos = rule.caseSensitive ? result.find(rule.matchText) : ciSearch(result, 0);
+                    if (pos != std::wstring::npos) {
+                        if (isReplace) result.replace(pos, rule.matchText.size(), rule.replaceText);
+                        else           result.erase(pos, rule.matchText.size());
+                    }
+                } else if (rule.which == 2) { // last
+                    auto pos = rule.caseSensitive ? result.rfind(rule.matchText) : ciRSearch(result);
+                    if (pos != std::wstring::npos) {
+                        if (isReplace) result.replace(pos, rule.matchText.size(), rule.replaceText);
+                        else           result.erase(pos, rule.matchText.size());
+                    }
+                } else { // all (3)
+                    std::wstring::size_type start = 0;
+                    while (true) {
+                        auto pos = rule.caseSensitive ? result.find(rule.matchText, start) : ciSearch(result, start);
+                        if (pos == std::wstring::npos) break;
+                        if (isReplace) { result.replace(pos, rule.matchText.size(), rule.replaceText); start = pos + rule.replaceText.size(); }
+                        else           { result.erase(pos, rule.matchText.size());                   start = pos; }
+                    }
+                }
+            } else if (rule.type == RnpRuleType::RegEx) {
+                std::wregex::flag_type flags = std::wregex::ECMAScript;
+                if (!rule.caseSensitive) flags |= std::wregex::icase;
+                std::wregex re(rule.matchText, flags);
+                result = (rule.which == 1)
+                    ? std::regex_replace(result, re, rule.replaceText, std::regex_constants::format_first_only)
+                    : std::regex_replace(result, re, rule.replaceText);
+            }
+        } catch (const std::exception& e) {
+            std::wcout << L"  规则警告: ";
+            const char* msg = e.what();
+            int wlen = MultiByteToWideChar(CP_UTF8, 0, msg, -1, nullptr, 0);
+            if (wlen > 0) { std::wstring wb(wlen, 0); MultiByteToWideChar(CP_UTF8, 0, msg, -1, &wb[0], wlen); std::wcout << wb; }
+            std::wcout << std::endl;
+        }
+    }
+    return result;
+}
+
+// 批量重命名：遍历目录内所有文件，应用 .rnp 规则并输出对照表
+void BatchRename(const std::wstring& dirPath, const std::wstring& rnpPath) {
+    std::wcout << L"正在解析规则文件: " << rnpPath << std::endl;
+    AppendLogLine(L"=== 批量重命名: " + dirPath + L" ===");
+    AppendLogLine(L"规则文件: " + rnpPath);
+    std::vector<RnpRule> rules = ParseRnpRules(rnpPath);
+    if (rules.empty()) {
+        std::wcout << L"错误：未解析到任何有效规则" << std::endl;
+        AppendLogLine(L"错误：未解析到任何有效规则");
+        return;
+    }
+
+    int enabledCnt = 0;
+    for (auto& r : rules) if (r.enabled) enabledCnt++;
+    std::wcout << L"共加载 " << rules.size() << L" 条规则，启用 " << enabledCnt << L" 条" << std::endl;
+    AppendLogLine(L"共加载 " + std::to_wstring(rules.size()) + L" 条规则，启用 " + std::to_wstring(enabledCnt) + L" 条");
+
+    std::wstring searchPath = dirPath;
+    if (searchPath.back() != L'\\') searchPath += L'\\';
+    searchPath += L'*';
+
+    WIN32_FIND_DATAW fd;
+    HANDLE hFind = FindFirstFileW(searchPath.c_str(), &fd);
+    if (hFind == INVALID_HANDLE_VALUE) {
+        std::wcout << L"错误：无法打开目录 " << dirPath << std::endl;
+        AppendLogLine(L"错误：无法打开目录 " + dirPath);
+        return;
+    }
+
+    std::wcout << L"----- 重命名对照表 -----" << std::endl;
+    int ok = 0, skip = 0;
+
+    do {
+        if (wcscmp(fd.cFileName, L".") == 0 || wcscmp(fd.cFileName, L"..") == 0) continue;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+
+        std::wstring orig = fd.cFileName;
+        std::wstring base = orig, ext;
+        size_t dot = orig.rfind(L'.');
+        if (dot != std::wstring::npos && dot > 0) { base = orig.substr(0, dot); ext = orig.substr(dot); }
+
+        std::wstring newBase = ApplyRules(base, rules);
+        std::wstring newName = newBase + ext;
+        if (newName == orig) continue;
+
+        std::wstring newPath = dirPath + L'\\' + newName;
+        if (GetFileAttributesW(newPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            std::wcout << L"  跳过（已存在）: " << orig << L" -> " << newName << std::endl;
+            AppendLogLine(L"  跳过（已存在）: " + orig + L" -> " + newName);
+            skip++; continue;
+        }
+
+        std::wstring oldPath = dirPath + L'\\' + orig;
+        if (MoveFileW(oldPath.c_str(), newPath.c_str())) {
+            std::wcout << L"  OK " << orig << L"\n    -> " << newName << std::endl;
+            AppendLogLine(L"  OK " + orig + L" -> " + newName);
+            ok++;
+        } else {
+            std::wcout << L"  FAIL: " << orig << L" -> " << newName << L" (error: " << GetLastError() << L")" << std::endl;
+            AppendLogLine(L"  FAIL: " + orig + L" -> " + newName + L" (error: " + std::to_wstring(GetLastError()) + L")");
+        }
+    } while (FindNextFileW(hFind, &fd));
+
+    FindClose(hFind);
+    std::wcout << L"----- Done: " << ok << L" ok, " << skip << L" skipped -----" << std::endl;
+    AppendLogLine(L"----- Done: " + std::to_wstring(ok) + L" ok, " + std::to_wstring(skip) + L" skipped -----");
 }
 
 // 注册窗口并启动消息循环
@@ -698,6 +1073,8 @@ int WINAPI wWinMain(
 ) 
 {
 	setup_utf8_console();
+    //SetConsoleOutputCP(CP_UTF8);
+   // SetConsoleCP(CP_UTF8);
 	parse_command_line(lpCmdLine,cfg);
 
 
@@ -709,12 +1086,20 @@ int WINAPI wWinMain(
 
 	if 	(!LoadConfig(cfg))
 	{
+		AppendLogLine(L"[DBG] LoadConfig 失败: " + cfg.errMsg);
 		std::wcout << cfg.errMsg << std::endl;
 		return 0;
 	} // 加载配置文件（包括非法字符列表）
 
 
-// 在 main 或 wWinMain 开头添加
+    // 诊断：打印重命名配置
+    {
+        auto itPrefix = cfg.extraConfig.find(L"renamerprefix");
+        std::wcout << L"[配置] renamerprefix=" << (itPrefix != cfg.extraConfig.end() ? itPrefix->second : L"(未配置)") << std::endl;
+        auto itPreset = cfg.extraConfig.find(L"renamerpreset");
+        std::wcout << L"[配置] renamerpreset=" << (itPreset != cfg.extraConfig.end() ? itPreset->second : L"(未配置)") << std::endl;
+    }
+
     if (cfg.autorefresh){
     	RunPythonAndShowResult();
     }
@@ -725,6 +1110,11 @@ int WINAPI wWinMain(
     if (cfg.logTofile) std::wcout << L"输出文件路径：" << cfg.output_path << std::endl;
     std::wcout << L"查找列：" << cfg.column << std::endl;
     std::wcout << L"详细日志：" << (cfg.detail ? L"开启" : L"关闭") << std::endl;
+    // 打印批量重命名配置
+    auto rpIt = cfg.extraConfig.find(L"renamerprefix");
+    std::wcout << L"批量重命名前缀：" << (rpIt != cfg.extraConfig.end() ? rpIt->second : L"(未设置)") << std::endl;
+    auto rrIt = cfg.extraConfig.find(L"renamerpreset");
+    std::wcout << L"规则文件路径：" << (rrIt != cfg.extraConfig.end() ? rrIt->second : L"(未设置)") << std::endl;
     std::wcout << L"开始监听剪贴板更新（按 Ctrl+C 退出）..." << std::endl;
     WSADATA wsaData;
     WSAStartup(MAKEWORD(2,2), &wsaData);
